@@ -1,0 +1,26 @@
+echo ".DS_Store" >> .gitignore
+```
+
+---
+
+**Basic `.gitignore` example for a typical project:**
+```
+# macOS
+.DS_Store
+
+# Node.js
+node_modules/
+npm-debug.log
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Editor files
+.vscode/
+.idea/
+
+# Ignore a folder
+results/
+data/
