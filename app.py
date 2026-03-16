@@ -1,40 +1,36 @@
 import streamlit as st
-import pickle
-import numpy as np
-from datetime import datetime
+import pandas as pd
+import plotly.graph_objects as go
 
-PKL_PATH = "gold_model.pkl"
+st.title("🥇 Gold Price Predictions")
+st.subheader("Next 7 Days Forecast (Closing price of the day)")
 
-def forecast_next_day(trend_model, arma_fitted, last_t):
-    """Forecast the next day's gold price using trend + ARMA residual."""
-    next_t = np.array([[last_t + 1]])
-    trend_forecast = trend_model.predict(next_t)[0]
-    residual_forecast = arma_fitted.forecast(steps=1).iloc[0]
-    log_price_forecast = trend_forecast + residual_forecast
-    return np.exp(log_price_forecast)
+# Load CSV
+df = pd.read_csv("gold_predictions.csv", index_col=0, parse_dates=True)
 
-st.title("Gold Price Forecast")
+# Keep only next 7 days (excluding today)
+today = pd.Timestamp.today().normalize()
+df = df[1:].head(7)
 
-try:
-    with open(PKL_PATH, "rb") as f:
-        bundle = pickle.load(f)
 
-    trend_model = bundle["trend_model"]
-    arma_fitted = bundle["arma_fitted"]
-    last_t = bundle["last_t"]
-    build_timestamp = bundle.get("build_timestamp")
+# Plotly line chart zoomed in on predicted values
+price_col = df.columns[0]
+y_min = df[price_col].min() * 0.999
+y_max = df[price_col].max() * 1.001
 
-    forecast_price = forecast_next_day(trend_model, arma_fitted, last_t)
-
-    st.write(f"**Forecasted Gold Price (next day):** ${forecast_price:,.2f}")
-
-    if build_timestamp:
-        formatted = datetime.fromisoformat(build_timestamp).strftime("%B %d, %Y at %I:%M %p")
-        st.caption(f"Model last built: {formatted}")
-    else:
-        st.caption("Model last built: unknown (rebuild to capture timestamp)")
-
-except FileNotFoundError:
-    st.error(f"Model file `{PKL_PATH}` not found. Place it in the same folder as this app.")
-except Exception as e:
-    st.error(f"Error loading model: {e}")
+fig = go.Figure()
+fig.add_trace(go.Scatter(
+    x=df.index,
+    y=df[price_col],
+    mode='lines+markers',
+    line=dict(color='gold', width=2),
+    marker=dict(size=8)
+))
+fig.update_layout(
+    title="Gold Price Forecast",
+    xaxis_title="Date",
+    yaxis_title="Predicted Price (USD)",
+    yaxis=dict(range=[y_min, y_max]),
+    hovermode="x unified"
+)
+st.plotly_chart(fig, use_container_width=True)
