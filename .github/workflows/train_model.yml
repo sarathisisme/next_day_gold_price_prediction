@@ -2,10 +2,9 @@ name: Scheduled Model Training
 
 on:
   schedule:
-    - cron: '45 17 * * 1'  # Every Monday at 17:45 UTC
+    - cron: '0 22 * * *'  # Every day at 22:00 UTC (23:00 CET)
   workflow_dispatch:        # Manual trigger from Actions tab
 
-# Fix 1: Grant write permission so the bot can push commits back to the repo
 permissions:
   contents: write
 
@@ -15,7 +14,6 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # Fix 2: persist-credentials ensures git push works with GITHUB_TOKEN
         uses: actions/checkout@v3
         with:
           persist-credentials: true
@@ -39,25 +37,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Train model and save as .pkl
+      - name: Train model and save predictions
         run: |
-          python baseline_daily_run.py
+          python daily_run.py
 
-      - name: Verify model file exists
+      - name: Verify predictions file exists
         run: |
-          if [ ! -f gold_model.pkl ]; then
-            echo "gold_model.pkl was not found! Training may have failed."
+          if [ ! -f gold_predictions.csv ]; then
+            echo "gold_predictions.csv was not found! Training may have failed."
             exit 1
           else
-            echo "gold_model.pkl successfully created."
+            echo "gold_predictions.csv successfully created."
           fi
 
-      - name: Commit and push updated model
+      - name: Commit and push updated predictions
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add gold_model.pkl
-          git diff --staged --quiet || git commit -m "chore: update gold_model.pkl from scheduled training [skip ci]"
+          git add gold_predictions.csv
+          git diff --staged --quiet || git commit -m "chore: update gold_predictions.csv from scheduled training [skip ci]"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
