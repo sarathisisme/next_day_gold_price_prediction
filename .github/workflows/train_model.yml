@@ -2,7 +2,7 @@ name: Scheduled Model Training
 
 on:
   schedule:
-    - cron: '0 22 * * *'  # Every day at 22:00 UTC (23:00 CET)
+    - cron: '0 6 * * *'  # Every day at 6:00 UTC (7:00 CET)
   workflow_dispatch:        # Manual trigger from Actions tab
 
 permissions:
