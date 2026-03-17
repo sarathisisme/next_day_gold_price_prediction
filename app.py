@@ -3,15 +3,18 @@ import pandas as pd
 import plotly.graph_objects as go
 
 st.title("🥇 Gold Price Predictions")
-st.subheader("Next 7 Days Forecast (Closing price of the day)")
+
+st.image("https://upload.wikimedia.org/wikipedia/commons/2/22/1000g-Goldbarren-Umicore.jpg",
+         use_container_width=True)
+
+st.subheader("Next 3 Days Forecast (Closing price of the day)")
 
 # Load CSV
 df = pd.read_csv("gold_predictions.csv", index_col=0, parse_dates=True)
 
 # Keep only next 7 days (excluding today)
 today = pd.Timestamp.today().normalize()
-df = df[1:].head(7)
-
+df = df[1:-4].head(7)
 
 # Plotly line chart zoomed in on predicted values
 price_col = df.columns[0]
@@ -29,8 +32,13 @@ fig.add_trace(go.Scatter(
 fig.update_layout(
     title="Gold Price Forecast",
     xaxis_title="Date",
-    yaxis_title="Predicted Price (USD)",
+    yaxis_title="Predicted Price (USD per oz)",
     yaxis=dict(range=[y_min, y_max]),
+    xaxis=dict(
+        tickmode="array",
+        tickvals=df.index,
+        tickformat="%Y-%m-%d"
+    ),
     hovermode="x unified"
 )
 st.plotly_chart(fig, use_container_width=True)
