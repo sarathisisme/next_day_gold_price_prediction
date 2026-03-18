@@ -1,18 +1,13 @@
-[![Shipping files](https://github.com/neuefische/ds-time-series/actions/workflows/workflow-05.yml/badge.svg?branch=main&event=workflow_dispatch)](https://github.com/neuefische/ds-time-series/actions/workflows/workflow-05.yml)
+# Next day gold price prediction
 
-# Time Series
+The app is model is trained every day (with new data) in order to make the next day gold price prediction
 
-In this repo we will have a look at time series.
+## App
+https://sara-gold-forecast.streamlit.app/
 
-## Task
-
-Please work in pairs through all the notebooks in this particular order:
-
-1. [Intro to EDA with Time Series](01_Intro_EDA_Time_Series.ipynb)
-1. [Time Series Stock Price Example](02_Time_Series_Stock_Price.ipynb)
-1. [Time Series Moving average animation](03_Time_Series_Moving_Average.ipynb)
-1. [Time Series Simulation](04_Time_Series_Decompose_Smoothing.ipynb)
-
+## Jupyter Notebooks
+- After checking out the repository please follow the steps in below section to set up the environment
+- You can use all the jupyter notebooks. Except news_sentiment.ipynb because it does not have the data files as they are too big
 
 ## Set up your Environment
 
