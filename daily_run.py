@@ -19,15 +19,18 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+
 # In[2]:
 
 
 df_sentiment = pd.read_csv("data/sentiment_data_final.csv", index_col=0, parse_dates=True)
 
+
 # In[3]:
 
 
 df_sentiment
+
 
 # In[4]:
 
@@ -68,7 +71,7 @@ def fetch_articles(query, begin_date, end_date, page):
             print(f"Minute rate limit hit. Sleeping {MINUTE_SLEEP}s...")
             time.sleep(MINUTE_SLEEP)
             continue
-    
+
         print("Error:", response.status_code)
         return []
 
@@ -108,7 +111,7 @@ def get_all_articles(query, start_date, end_date):
                 break
 
             month_articles.extend(docs)
-            
+
             time.sleep(12)
 
         # Only commit the month if ALL requests succeeded
@@ -121,6 +124,7 @@ def get_all_articles(query, start_date, end_date):
 
     print(f"Returning {len(all_articles)} articles collected so far.")
     return pd.json_normalize(all_articles)
+
 
 # In[5]:
 
@@ -137,10 +141,12 @@ print(end)
 
 df = get_all_articles("economy", start, end)
 
+
 # In[6]:
 
 
 analyzer = SentimentIntensityAnalyzer()
+
 
 # In[7]:
 
@@ -157,21 +163,25 @@ df['sentiment'] = df[text_col].apply(
     lambda x: analyzer.polarity_scores(x)['compound']
 )
 
+
 # In[8]:
 
 
 df['pub_date'] = pd.to_datetime(df['pub_date'])
 df['date'] = df['pub_date'].dt.date
 
+
 # In[9]:
 
 
 daily_sentiment = df.groupby('date')['sentiment'].mean().reset_index()
 
+
 # In[10]:
 
 
 daily_sentiment
+
 
 # In[11]:
 
@@ -179,20 +189,24 @@ daily_sentiment
 daily_sentiment = daily_sentiment.set_index('date')
 daily_sentiment.index = pd.to_datetime(daily_sentiment.index)
 
+
 # In[12]:
 
 
 daily_sentiment
+
 
 # In[13]:
 
 
 df_sentiment = pd.concat([df_sentiment, daily_sentiment]).sort_index()
 
+
 # In[14]:
 
 
 df_sentiment
+
 
 # In[15]:
 
@@ -254,6 +268,7 @@ daily_data.columns = [
     "VIX"
 ]
 
+
 # In[16]:
 
 
@@ -278,16 +293,19 @@ monthly_macro_daily = monthly_macro_daily.reindex(
 df = pd.concat([daily_data, monthly_macro_daily], axis=1)
 df = df.loc[START_DATE:]
 
+
 # In[17]:
 
 
 df = df.dropna(subset=['Gold'])
 df = df.ffill()
 
+
 # In[18]:
 
 
 df.isna().sum()
+
 
 # In[19]:
 
@@ -296,15 +314,18 @@ df = df.join(df_sentiment, how='left')
 df.sort_index(inplace=True)
 df = df.ffill()
 
+
 # In[20]:
 
 
 df.isna().sum()
 
+
 # In[21]:
 
 
 df
+
 
 # In[22]:
 
@@ -399,16 +420,19 @@ def predict_next_day_gold(df, train_window=TRAIN_WINDOW):
 
     return prediction, model, last_date
 
+
 # In[23]:
 
 
 # ── 4. RUN ────────────────────────────────────────────────────────────────────
 prediction_tomorrow, model, last_date = predict_next_day_gold(df)
 
+
 # In[24]:
 
 
 prediction_tomorrow
+
 
 # In[25]:
 
@@ -496,11 +520,13 @@ def predict_today_gold(df, train_window=TRAIN_WINDOW):
 
     return prediction, model, today_date
 
+
 # In[26]:
 
 
 # ── 4. RUN ────────────────────────────────────────────────────────────────────
 prediction_today, model, today_date = predict_today_gold(df)
+
 
 # ## Next 7 days
 
@@ -636,18 +662,21 @@ def predict_next_7_days(df, train_window=TRAIN_WINDOW, horizon=FORECAST_HORIZON)
 # ── 4. RUN ────────────────────────────────────────────────────────────────────
 forecast_df, model = predict_next_7_days(df)
 
+
 # In[28]:
 
 
 # ── 4. RUN ────────────────────────────────────────────────────────────────────
 forecast_df, model = predict_next_7_days(df)
 
-# In[31]:
+
+# In[29]:
 
 
 forecast_df
 
-# In[43]:
+
+# In[30]:
 
 
 new_row = pd.DataFrame({
@@ -656,22 +685,184 @@ new_row = pd.DataFrame({
 
 forecast_df_final = pd.concat([new_row, forecast_df])
 
-# In[44]:
+
+# In[31]:
 
 
 forecast_df_final
 
-# In[48]:
+
+# In[32]:
 
 
 forecast_df_final.iloc[1, forecast_df_final.columns.get_loc('predicted_gold')] = prediction_tomorrow
 
-# In[49]:
+
+# In[33]:
 
 
 forecast_df_final
 
-# In[50]:
+
+# In[34]:
 
 
 forecast_df_final.to_csv('gold_predictions.csv', index=True)
+
+
+# In[35]:
+
+
+TARGET_COL   = "Gold"
+EXOG_VARS  = [col for col in df.columns if col != TARGET_COL]
+GOLD_LAGS    = [1, 2, 3, 4, 5, 6]
+EXOG_LAGS    = [1, 2, 3]
+TRAIN_WINDOW = 252 * 2   # 3780 trading days
+TEST_WINDOW  = 10
+
+XGB_PARAMS = dict(
+    n_estimators    = 800,
+    max_depth       = 4,
+    learning_rate   = 0.01,
+    subsample       = 0.8,
+    colsample_bytree= 0.8,
+    reg_alpha       = 0.1,
+    reg_lambda      = 1,
+    random_state    = 42
+)
+
+
+# In[36]:
+
+
+# ── 1. FEATURE ENGINEERING ────────────────────────────────────────────────────
+def build_features(df):
+    """Build all features exactly as specified."""
+    df = df.copy()
+
+    # Next day target
+    df["target"] = df[TARGET_COL].shift(-1)
+
+    # Integer time index as feature
+    df["t"] = np.arange(len(df))
+
+    # Gold lags
+    for lag in GOLD_LAGS:
+        df[f"gold_lag_{lag}"] = df[TARGET_COL].shift(lag)
+
+    # Exogenous lags
+    for col in EXOG_VARS:
+        for lag in EXOG_LAGS:
+            df[f"{col}_lag_{lag}"] = df[col].shift(lag)
+
+    return df
+
+# ── 2. ROLLING FORECAST (REFACTORED) ─────────────────────────────────────────
+
+def validate_data(df_feat, train_window, test_window):
+    """Validate enough data exists for the rolling forecast."""
+    total_required = train_window + test_window
+    if len(df_feat) < total_required:
+        raise ValueError(f"Need {total_required} rows after feature engineering, got {len(df_feat)}")
+    return df_feat.iloc[-(train_window + test_window):]
+
+
+def get_window_split(df_feat, i, train_window):
+    """Slice and split a single rolling window into train and latest row."""
+    window     = df_feat.iloc[i : i + train_window + 1].copy()
+    latest_row = window.iloc[-1:].copy()
+    train_df   = window.iloc[:-1].dropna()
+    return train_df, latest_row
+
+
+def get_X_y(train_df):
+    """Split training window into features and target."""
+    X_train = train_df.drop("target", axis=1)
+    y_train = train_df["target"]
+    return X_train, y_train
+
+
+def train_model(X_train, y_train):
+    """Train an XGBRegressor on the given data."""
+    model = XGBRegressor(**XGB_PARAMS)
+    model.fit(X_train, y_train, verbose=False)
+    return model
+
+
+def predict_next_day(model, latest_row, X_train):
+    """Generate next day prediction from the latest row."""
+    latest_features = latest_row.drop("target", axis=1)
+    latest_features = latest_features[X_train.columns]    # ensure column order
+    return model.predict(latest_features)[0]
+
+
+def run_single_step(df_feat, i, train_window):
+    """Run a single rolling step: split → train → predict."""
+    train_df, latest_row = get_window_split(df_feat, i, train_window)
+    X_train, y_train     = get_X_y(train_df)
+    model                = train_model(X_train, y_train)
+    pred                 = predict_next_day(model, latest_row, X_train)
+    return pred, model
+
+
+def rolling_xgb_forecast(df, train_window=TRAIN_WINDOW, test_window=TEST_WINDOW):
+    """
+    Rolling 1-step ahead XGBoost forecast.
+
+    At each step i:
+      - Train on rows [i : i + train_window - 1]  (train_window rows)
+      - 'latest_row' is row [i + train_window - 1] (last row of window)
+      - Predict target = row [i + train_window]    (true next day)
+    """
+    df_feat = build_features(df)
+    df_feat = validate_data(df_feat, train_window, test_window)
+
+    predictions, actuals, pred_dates = [], [], []
+
+    print(f"Train window : {train_window} days")
+    print(f"Test window  : {test_window} days")
+    print(f"Rolling forecast started...\n")
+
+    for i in range(test_window):
+
+        pred, model = run_single_step(df_feat, i, train_window)
+
+        predictions.append(pred)
+        actuals.append(df_feat.iloc[i + train_window][TARGET_COL])
+        pred_dates.append(df_feat.index[i + train_window])
+
+        print(f"\r  Progress: {((i + 1) / test_window) * 100:.1f}%", end="", flush=True)
+
+    return pred_dates, predictions, actuals, model
+
+
+# In[37]:
+
+
+# ── 6. RUN & EVALUATE ─────────────────────────────────────────────────────────
+pred_dates, predictions, actuals, final_model = rolling_xgb_forecast(df)
+
+
+# In[38]:
+
+
+pred_dates
+
+
+# In[39]:
+
+
+predictions
+
+
+# In[41]:
+
+
+previous_predictions = pd.DataFrame({
+    'predictions': predictions,
+    'actuals': actuals
+}, index=pred_dates)
+previous_predictions.index.name = 'date'
+
+previous_predictions.to_csv('previous_predictions.csv', index=True)
+
