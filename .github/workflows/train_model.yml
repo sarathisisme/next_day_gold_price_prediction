@@ -49,12 +49,6 @@ jobs:
           else
             echo "gold_predictions.csv successfully created."
           fi
-          if [ ! -f previous_predictions.csv ]; then
-            echo "previous_predictions.csv was not found! Training may have failed."
-            exit 1
-          else
-            echo "previous_predictions.csv successfully created."
-          fi
 
       - name: Commit and push updated predictions
         run: |

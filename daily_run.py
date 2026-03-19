@@ -19,18 +19,15 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-
 # In[2]:
 
 
 df_sentiment = pd.read_csv("data/sentiment_data_final.csv", index_col=0, parse_dates=True)
 
-
 # In[3]:
 
 
 df_sentiment
-
 
 # In[4]:
 
@@ -71,7 +68,7 @@ def fetch_articles(query, begin_date, end_date, page):
             print(f"Minute rate limit hit. Sleeping {MINUTE_SLEEP}s...")
             time.sleep(MINUTE_SLEEP)
             continue
-
+    
         print("Error:", response.status_code)
         return []
 
@@ -111,7 +108,7 @@ def get_all_articles(query, start_date, end_date):
                 break
 
             month_articles.extend(docs)
-
+            
             time.sleep(12)
 
         # Only commit the month if ALL requests succeeded
@@ -124,7 +121,6 @@ def get_all_articles(query, start_date, end_date):
 
     print(f"Returning {len(all_articles)} articles collected so far.")
     return pd.json_normalize(all_articles)
-
 
 # In[5]:
 
@@ -141,12 +137,10 @@ print(end)
 
 df = get_all_articles("economy", start, end)
 
-
 # In[6]:
 
 
 analyzer = SentimentIntensityAnalyzer()
-
 
 # In[7]:
 
@@ -163,25 +157,21 @@ df['sentiment'] = df[text_col].apply(
     lambda x: analyzer.polarity_scores(x)['compound']
 )
 
-
 # In[8]:
 
 
 df['pub_date'] = pd.to_datetime(df['pub_date'])
 df['date'] = df['pub_date'].dt.date
 
-
 # In[9]:
 
 
 daily_sentiment = df.groupby('date')['sentiment'].mean().reset_index()
 
-
 # In[10]:
 
 
 daily_sentiment
-
 
 # In[11]:
 
@@ -189,24 +179,20 @@ daily_sentiment
 daily_sentiment = daily_sentiment.set_index('date')
 daily_sentiment.index = pd.to_datetime(daily_sentiment.index)
 
-
 # In[12]:
 
 
 daily_sentiment
-
 
 # In[13]:
 
 
 df_sentiment = pd.concat([df_sentiment, daily_sentiment]).sort_index()
 
-
 # In[14]:
 
 
 df_sentiment
-
 
 # In[15]:
 
@@ -268,7 +254,6 @@ daily_data.columns = [
     "VIX"
 ]
 
-
 # In[16]:
 
 
@@ -293,19 +278,16 @@ monthly_macro_daily = monthly_macro_daily.reindex(
 df = pd.concat([daily_data, monthly_macro_daily], axis=1)
 df = df.loc[START_DATE:]
 
-
 # In[17]:
 
 
 df = df.dropna(subset=['Gold'])
 df = df.ffill()
 
-
 # In[18]:
 
 
 df.isna().sum()
-
 
 # In[19]:
 
@@ -314,403 +296,17 @@ df = df.join(df_sentiment, how='left')
 df.sort_index(inplace=True)
 df = df.ffill()
 
-
 # In[20]:
 
 
 df.isna().sum()
-
 
 # In[21]:
 
 
 df
 
-
 # In[22]:
-
-
-TARGET_COL = "Gold"
-EXOG_VARS  = [col for col in df.columns if col != TARGET_COL]
-GOLD_LAGS  = [1, 2, 3, 4, 5, 6]
-EXOG_LAGS  = [1, 2, 3]
-TRAIN_WINDOW = 252 * 2  # 504 trading days
-
-XGB_PARAMS = dict(
-    n_estimators     = 800,
-    max_depth        = 4,
-    learning_rate    = 0.01,
-    subsample        = 0.8,
-    colsample_bytree = 0.8,
-    reg_alpha        = 0.1,
-    reg_lambda       = 1,
-    random_state     = 42
-)
-
-# ── 1. FEATURE ENGINEERING ────────────────────────────────────────────────────
-def build_features(df):
-    """Build lag features. No target shift needed — we predict from the latest row."""
-    df = df.copy()
-    df["t"] = np.arange(len(df))
-
-    for lag in GOLD_LAGS:
-        df[f"gold_lag_{lag}"] = df[TARGET_COL].shift(lag)
-
-    for col in EXOG_VARS:
-        for lag in EXOG_LAGS:
-            df[f"{col}_lag_{lag}"] = df[col].shift(lag)
-
-    return df
-
-# ── 2. PREPARE TRAIN SET ──────────────────────────────────────────────────────
-def get_train_data(df_feat, train_window):
-    """
-    Use the last `train_window` rows (excluding the final row) as training data.
-    Target = next day's Gold price, so we shift Gold by -1 within this slice.
-    """
-    train_slice = df_feat.iloc[-(train_window + 1):-1].copy()  # train_window rows
-    train_slice["target"] = df_feat[TARGET_COL].iloc[
-        -(train_window): len(df_feat)
-    ].values  # align next-day gold as target
-
-    train_slice = train_slice.dropna()
-    X_train = train_slice.drop(columns=["target"])
-    y_train = train_slice["target"]
-    return X_train, y_train
-
-# ── 3. PREDICT NEXT DAY ───────────────────────────────────────────────────────
-def predict_next_day_gold(df, train_window=TRAIN_WINDOW):
-    """
-    Train on the last `train_window` rows and predict the next day's Gold price.
-
-    Returns
-    -------
-    prediction : float
-        Predicted Gold price for the next trading day.
-    model : XGBRegressor
-        The trained model.
-    last_date : pd.Timestamp
-        The date of the most recent data point used (i.e., today's date in the data).
-    """
-    if len(df) < train_window + max(GOLD_LAGS):
-        raise ValueError(
-            f"Need at least {train_window + max(GOLD_LAGS)} rows, got {len(df)}"
-        )
-
-    df_feat = build_features(df)
-
-    # ── Training ──────────────────────────────────────────────────────────────
-    X_train, y_train = get_train_data(df_feat, train_window)
-
-    model = XGBRegressor(**XGB_PARAMS)
-    model.fit(X_train, y_train, verbose=False)
-
-    # ── Prediction row = the very last row in df_feat ─────────────────────────
-    latest_row = df_feat.iloc[[-1]].drop(
-        columns=[c for c in ["target"] if c in df_feat.columns],
-        errors="ignore"
-    )
-    latest_row = latest_row[X_train.columns]  # enforce column order
-
-    prediction = model.predict(latest_row)[0]
-    last_date  = df_feat.index[-1]
-
-    print(f"Last data date : {last_date.date()}")
-    print(f"Next-day Gold prediction : {prediction:.4f}")
-
-    return prediction, model, last_date
-
-
-# In[23]:
-
-
-# ── 4. RUN ────────────────────────────────────────────────────────────────────
-prediction_tomorrow, model, last_date = predict_next_day_gold(df)
-
-
-# In[24]:
-
-
-prediction_tomorrow
-
-
-# In[25]:
-
-
-TARGET_COL   = "Gold"
-EXOG_VARS    = [col for col in df.columns if col != TARGET_COL]
-GOLD_LAGS    = [1, 2, 3, 4, 5, 6]
-EXOG_LAGS    = [1, 2, 3]
-TRAIN_WINDOW = 252 * 2  # 504 trading days
-
-XGB_PARAMS = dict(
-    n_estimators     = 800,
-    max_depth        = 4,
-    learning_rate    = 0.01,
-    subsample        = 0.8,
-    colsample_bytree = 0.8,
-    reg_alpha        = 0.1,
-    reg_lambda       = 1,
-    random_state     = 42
-)
-
-# ── 1. FEATURE ENGINEERING ────────────────────────────────────────────────────
-def build_features(df):
-    df = df.copy()
-    df["t"] = np.arange(len(df))
-
-    for lag in GOLD_LAGS:
-        df[f"gold_lag_{lag}"] = df[TARGET_COL].shift(lag)
-
-    for col in EXOG_VARS:
-        for lag in EXOG_LAGS:
-            df[f"{col}_lag_{lag}"] = df[col].shift(lag)
-
-    return df
-
-# ── 2. PREPARE TRAIN SET ──────────────────────────────────────────────────────
-def get_train_data(df_feat, train_window):
-    """
-    Train on the last `train_window` rows (excluding the final row).
-    Target = same-day Gold price (no shift) — lag features already encode yesterday.
-    """
-    train_slice = df_feat.iloc[-(train_window + 1):-1].copy()  # train_window rows
-    train_slice["target"] = train_slice[TARGET_COL]            # same-day gold as target
-
-    train_slice = train_slice.drop(columns=[TARGET_COL]).dropna()
-    X_train = train_slice.drop(columns=["target"])
-    y_train = train_slice["target"]
-    return X_train, y_train
-
-# ── 3. PREDICT TODAY ──────────────────────────────────────────────────────────
-def predict_today_gold(df, train_window=TRAIN_WINDOW):
-    """
-    Train on the last `train_window` rows and predict today's Gold price.
-    The prediction row is the last row of df_feat, with TARGET_COL dropped
-    (since today's Gold is what we're predicting).
-
-    Returns
-    -------
-    prediction : float  — predicted Gold price for today
-    model      : XGBRegressor
-    today_date : pd.Timestamp — date of the prediction row
-    """
-    if len(df) < train_window + max(GOLD_LAGS):
-        raise ValueError(
-            f"Need at least {train_window + max(GOLD_LAGS)} rows, got {len(df)}"
-        )
-
-    df_feat = build_features(df)
-
-    # ── Training ──────────────────────────────────────────────────────────────
-    X_train, y_train = get_train_data(df_feat, train_window)
-
-    model = XGBRegressor(**XGB_PARAMS)
-    model.fit(X_train, y_train, verbose=False)
-
-    # ── Prediction row = last row, TARGET_COL dropped (unknown today) ─────────
-    latest_row = df_feat.iloc[[-1]].drop(columns=[TARGET_COL], errors="ignore")
-    latest_row = latest_row[X_train.columns]  # enforce column order
-
-    prediction = model.predict(latest_row)[0]
-    today_date = df_feat.index[-1]
-
-    print(f"Prediction date  : {today_date.date()}")
-    print(f"Today's Gold prediction : {prediction:.4f}")
-
-    return prediction, model, today_date
-
-
-# In[26]:
-
-
-# ── 4. RUN ────────────────────────────────────────────────────────────────────
-prediction_today, model, today_date = predict_today_gold(df)
-
-
-# ## Next 7 days
-
-# In[27]:
-
-
-TARGET_COL   = "Gold"
-EXOG_VARS    = [col for col in df.columns if col != TARGET_COL]
-GOLD_LAGS    = [1, 2, 3, 4, 5, 6]
-EXOG_LAGS    = [1, 2, 3]
-TRAIN_WINDOW = 252 * 2  # 504 trading days
-FORECAST_HORIZON = 7
-
-XGB_PARAMS = dict(
-    n_estimators     = 800,
-    max_depth        = 4,
-    learning_rate    = 0.01,
-    subsample        = 0.8,
-    colsample_bytree = 0.8,
-    reg_alpha        = 0.1,
-    reg_lambda       = 1,
-    random_state     = 42
-)
-
-# ── 1. FEATURE ENGINEERING ────────────────────────────────────────────────────
-def build_features(df):
-    df = df.copy()
-    df["t"] = np.arange(len(df))
-
-    for lag in GOLD_LAGS:
-        df[f"gold_lag_{lag}"] = df[TARGET_COL].shift(lag)
-
-    for col in EXOG_VARS:
-        for lag in EXOG_LAGS:
-            df[f"{col}_lag_{lag}"] = df[col].shift(lag)
-
-    return df
-
-# ── 2. PREPARE TRAIN SET ──────────────────────────────────────────────────────
-def get_train_data(df_feat, train_window):
-    """Target = next day's Gold price (shift -1)."""
-    train_slice = df_feat.iloc[-(train_window + 1):-1].copy()
-    train_slice["target"] = df_feat[TARGET_COL].iloc[
-        -(train_window): len(df_feat)
-    ].values
-
-    train_slice = train_slice.dropna()
-    # Drop raw price columns — only lag features + "t" should remain
-    cols_to_drop = ["target", TARGET_COL] + EXOG_VARS
-    X_train = train_slice.drop(columns=[c for c in cols_to_drop if c in train_slice.columns])
-    y_train = train_slice["target"]
-    return X_train, y_train
-
-# ── 3. RECURSIVE 7-DAY FORECAST ───────────────────────────────────────────────
-def predict_next_7_days(df, train_window=TRAIN_WINDOW, horizon=FORECAST_HORIZON):
-    """
-    Recursive multi-step forecast for the next `horizon` trading days.
-
-    Strategy:
-      - Train once on the last `train_window` rows (next-day target).
-      - At each step, build a feature row from the rolling gold price buffer
-        and the last known exog lags, then feed the prediction back into the
-        buffer for the next step.
-
-    Returns
-    -------
-    forecast_df : pd.DataFrame
-        DataFrame with columns ['date', 'predicted_gold'] for each forecast day.
-    model : XGBRegressor
-    """
-    if len(df) < train_window + max(GOLD_LAGS):
-        raise ValueError(
-            f"Need at least {train_window + max(GOLD_LAGS)} rows, got {len(df)}"
-        )
-
-    df_feat = build_features(df)
-
-    # ── Train once ────────────────────────────────────────────────────────────
-    X_train, y_train = get_train_data(df_feat, train_window)
-    model = XGBRegressor(**XGB_PARAMS)
-    model.fit(X_train, y_train, verbose=False)
-
-    # ── Rolling gold buffer: recent known prices for lag construction ─────────
-    # Keep max(GOLD_LAGS) most recent gold prices; new predictions append here
-    gold_buffer = list(df[TARGET_COL].iloc[-max(GOLD_LAGS):].values)
-
-    # Last known exog lag values (taken from the last feature row)
-    last_feat_row = df_feat.iloc[-1]
-
-    last_t     = int(last_feat_row["t"])
-    predictions = []
-    forecast_dates = pd.bdate_range(                          # business days only
-        start=df.index[-1] + pd.offsets.BDay(1), periods=horizon
-    )
-
-    for step in range(horizon):
-        # Build feature row for this step
-        feat = {}
-        feat["t"] = last_t + step + 1
-
-        # Gold lags — pulled from the rolling buffer
-        for lag in GOLD_LAGS:
-            feat[f"gold_lag_{lag}"] = gold_buffer[-(lag)]
-
-        # Exog lags — held constant at last known values (forward-fill assumption)
-        # For lag_1 → use lag_2's value from previous step, etc. (shift forward)
-        for col in EXOG_VARS:
-            for lag in EXOG_LAGS:
-                feat[f"{col}_lag_{lag}"] = last_feat_row.get(f"{col}_lag_{lag}", np.nan)
-
-        # Align to training columns and predict
-        feat_df = pd.DataFrame([feat])[X_train.columns]
-        pred    = model.predict(feat_df)[0]
-
-        predictions.append(pred)
-        gold_buffer.append(pred)   # feed prediction back as next lag
-
-    # ── Results ───────────────────────────────────────────────────────────────
-    forecast_df = pd.DataFrame({
-        "date"           : forecast_dates,
-        "predicted_gold" : predictions
-    }).set_index("date")
-
-    print(f"Last data date : {df.index[-1].date()}")
-    print(f"\n{'Date':<15}  {'Predicted Gold':>15}")
-    print("-" * 32)
-    for date, row in forecast_df.iterrows():
-        print(f"{str(date.date()):<15}  {row['predicted_gold']:>15.4f}")
-
-    return forecast_df, model
-
-
-# ── 4. RUN ────────────────────────────────────────────────────────────────────
-forecast_df, model = predict_next_7_days(df)
-
-
-# In[28]:
-
-
-# ── 4. RUN ────────────────────────────────────────────────────────────────────
-forecast_df, model = predict_next_7_days(df)
-
-
-# In[29]:
-
-
-forecast_df
-
-
-# In[30]:
-
-
-new_row = pd.DataFrame({
-    'predicted_gold': [prediction_today]
-}, index=[pd.Timestamp(today_date)])
-
-forecast_df_final = pd.concat([new_row, forecast_df])
-
-
-# In[31]:
-
-
-forecast_df_final
-
-
-# In[32]:
-
-
-forecast_df_final.iloc[1, forecast_df_final.columns.get_loc('predicted_gold')] = prediction_tomorrow
-
-
-# In[33]:
-
-
-forecast_df_final
-
-
-# In[34]:
-
-
-forecast_df_final.to_csv('gold_predictions.csv', index=True)
-
-
-# In[35]:
 
 
 TARGET_COL   = "Gold"
@@ -731,8 +327,7 @@ XGB_PARAMS = dict(
     random_state    = 42
 )
 
-
-# In[36]:
+# In[23]:
 
 
 # ── 1. FEATURE ENGINEERING ────────────────────────────────────────────────────
@@ -742,7 +337,7 @@ def build_features(df):
 
     # Next day target
     df["target"] = df[TARGET_COL].shift(-1)
-
+    
     # Integer time index as feature
     df["t"] = np.arange(len(df))
 
@@ -769,7 +364,7 @@ def validate_data(df_feat, train_window, test_window):
 
 def get_window_split(df_feat, i, train_window):
     """Slice and split a single rolling window into train and latest row."""
-    window     = df_feat.iloc[i : i + train_window + 1].copy()
+    window     = df_feat.iloc[i : i + train_window].copy()
     latest_row = window.iloc[-1:].copy()
     train_df   = window.iloc[:-1].dropna()
     return train_df, latest_row
@@ -835,34 +430,65 @@ def rolling_xgb_forecast(df, train_window=TRAIN_WINDOW, test_window=TEST_WINDOW)
 
     return pred_dates, predictions, actuals, model
 
-
-# In[37]:
+# In[24]:
 
 
 # ── 6. RUN & EVALUATE ─────────────────────────────────────────────────────────
 pred_dates, predictions, actuals, final_model = rolling_xgb_forecast(df)
 
-
-# In[38]:
-
-
-pred_dates
-
-
-# In[39]:
+# In[27]:
 
 
 predictions
 
+# In[26]:
 
-# In[41]:
+
+def predict_true_tomorrow(df, train_window=TRAIN_WINDOW):
+    """
+    Train on the last train_window rows of the full df and predict
+    the one day that has not yet occurred.
+    
+    latest_row = df.iloc[-1] (today — last known data point)
+    prediction = tomorrow's Gold price (genuinely unknown)
+    """
+    df_feat = build_features(df)  # built on full df, no validate_data trimming
+
+    # Window = last train_window rows of full df
+    window     = df_feat.iloc[-train_window:].copy()
+    latest_row = window.iloc[-1:].copy()          # today = iloc[-1]
+    train_df   = window.iloc[:-1].dropna()        # train on iloc[-train_window:-1]
+
+    X_train, y_train = get_X_y(train_df)
+    model            = train_model(X_train, y_train)
+    pred             = predict_next_day(model, latest_row, X_train)
+
+    tomorrow_date = df_feat.index[-1] + pd.offsets.BDay(1)
+
+    print(f"Last known date            : {df_feat.index[-1].date()}")
+    print(f"Prediction date (tomorrow) : {tomorrow_date.date()}")
+    print(f"Tomorrow's Gold prediction : {pred:.4f}")
+    return pred, tomorrow_date
 
 
-previous_predictions = pd.DataFrame({
-    'predictions': predictions,
-    'actuals': actuals
-}, index=pred_dates)
-previous_predictions.index.name = 'date'
+# ── RUN ───────────────────────────────────────────────────────────────────────
+pred_dates, predictions, actuals, model = rolling_xgb_forecast(df)
+tomorrow_pred, tomorrow_date = predict_true_tomorrow(df)
 
-previous_predictions.to_csv('previous_predictions.csv', index=True)
+# In[29]:
 
+
+# ── BUILD RESULTS DATAFRAME ───────────────────────────────────────────────────
+results_df = pd.DataFrame({
+    "prediction" : predictions + [tomorrow_pred],
+    "actual"     : actuals     + [np.nan],
+}, index=pd.DatetimeIndex(pred_dates + [tomorrow_date]))
+
+results_df.index.name = "date"
+
+results_df.to_csv("gold_predictions.csv")
+
+# In[30]:
+
+
+results_df
