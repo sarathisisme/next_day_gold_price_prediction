@@ -1,13 +1,25 @@
 # Next day gold price prediction
 
-The app is model is trained every day (with new data) in order to make the next day gold price prediction
+The app model is trained every day (with new data) in order to make the next day gold price prediction
 
 ## App
 https://sara-gold-forecast.streamlit.app/
 
 ## Jupyter Notebooks
 - After checking out the repository please follow the steps in below section to set up the environment
-- You can use all the jupyter notebooks. Except news_sentiment.ipynb because it does not have the data files as they are too big
+- To open Jupyter Lab enter this after environment activation
+    ```sh
+    jupyter-lab
+    ```
+- You can use all the jupyter notebooks. Except news_sentiment.ipynb because it does not have the data files as they are too big for GitHub
+- Baseline_Trend.ipynb can be run to get results for baseline model
+- ARMA.ipynb can be run to get results of improved model
+- XGBoost_With_All_Exo_Wo_Sentiment.ipynb contains advanced model without news sentiment
+- XGBoost_With_All_Exo.ipynb contains advanced model wtih news sentiment
+- daily_run.py is the script that runs every day and train model with new data
+- gold_predictions.csv is where the results of the above script are stored
+- app.py is for the web app
+- nlp_data_mining.ipynb is used to get news text from new york times API
 
 ## Set up your Environment
 

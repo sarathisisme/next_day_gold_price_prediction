@@ -23,3 +23,7 @@ __pycache__/
 
 # Ignore a folder
 results/
+
+.ipynb_checkpoints/
+.python-version
+.venv/
